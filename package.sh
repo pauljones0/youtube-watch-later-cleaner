@@ -15,5 +15,12 @@ for f in $FILES; do
 done
 
 rm -f "$NAME.zip"
-zip "$NAME.zip" $FILES
-echo "Created $NAME.zip ($(du -h "$NAME.zip" | cut -f1))"
+
+if command -v zip &>/dev/null; then
+  zip "$NAME.zip" $FILES
+else
+  # Fallback for Windows (no zip command)
+  powershell -Command "Compress-Archive -Path '$( echo $FILES | sed 's/ /,/g' )' -DestinationPath '$NAME.zip' -Force"
+fi
+
+echo "Created $NAME.zip"
