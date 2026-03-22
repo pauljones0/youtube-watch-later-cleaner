@@ -20,7 +20,7 @@ if command -v zip &>/dev/null; then
   zip "$NAME.zip" $FILES
 else
   # Fallback for Windows (no zip command)
-  powershell -Command "Compress-Archive -Path '$( echo $FILES | sed 's/ /,/g' )' -DestinationPath '$NAME.zip' -Force"
+  powershell -Command "Compress-Archive -Path manifest.json,content.js,popup.html,popup.js,icon.svg -DestinationPath '$NAME.zip' -Force"
 fi
 
 echo "Created $NAME.zip"
