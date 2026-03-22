@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap');
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-base: #121212;
+      --bg-surface: rgba(255, 255, 255, 0.04);
+      --bg-surface-hover: rgba(255, 255, 255, 0.07);
+      --border: rgba(255, 255, 255, 0.08);
+      --border-focus: rgba(255, 255, 255, 0.16);
+      --text-primary: #f0f0f0;
+      --text-secondary: #8a8a8a;
+      --text-tertiary: #5a5a5a;
+      --accent: #6366f1;
+      --accent-dim: rgba(99, 102, 241, 0.15);
+      --success: #22c55e;
+      --success-dim: rgba(34, 197, 94, 0.12);
+      --warning: #eab308;
+      --danger: #ef4444;
+      --danger-dim: rgba(239, 68, 68, 0.12);
+      --radius: 4px;
+    }
+
+    body {
+      width: 320px;
+      padding: 20px;
+      font-family: 'Inter', system-ui, sans-serif;
+      color: var(--text-primary);
+      background: var(--bg-base);
+      font-size: 13px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 16px;
+    }
+
+    .header img { width: 24px; height: 24px; opacity: 0.9; }
+
+    .header h1 {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+
+    /* ── Status ── */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-bottom: 16px;
+      transition: border-color 0.15s;
+    }
+
+    .status-bar::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--text-tertiary);
+      flex-shrink: 0;
+      transition: background 0.15s;
+    }
+
+    .status-bar.success { border-color: rgba(34, 197, 94, 0.2); color: var(--success); }
+    .status-bar.success::before { background: var(--success); }
+    .status-bar.error { border-color: rgba(239, 68, 68, 0.2); color: var(--danger); }
+    .status-bar.error::before { background: var(--danger); }
+    .status-bar.warning { border-color: rgba(234, 179, 8, 0.2); color: var(--warning); }
+    .status-bar.warning::before { background: var(--warning); }
+
+    /* ── Progress ── */
+    .progress-section {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+
+    .progress-section.hidden { display: none; }
+
+    .progress-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 12px;
+    }
+
+    .progress-count {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      color: var(--text-primary);
+    }
+
+    .progress-label {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .progress-total {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      color: var(--text-tertiary);
+      text-align: right;
+    }
+
+    .progress-bar-track {
+      width: 100%;
+      height: 3px;
+      background: rgba(255, 255, 255, 0.06);
+      border-radius: 1px;
+      overflow: hidden;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 1px;
+      width: 0%;
+      transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .progress-bar-fill.indeterminate {
+      width: 30%;
+      animation: slide 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    }
+
+    @keyframes slide {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(400%); }
+    }
+
+    .progress-eta {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--text-tertiary);
+      margin-top: 8px;
+    }
+
+    /* ── Empty / celebration state ── */
+    .empty-state {
+      text-align: center;
+      padding: 20px 16px;
+      background: var(--success-dim);
+      border: 1px solid rgba(34, 197, 94, 0.15);
+      border-radius: var(--radius);
+      margin-bottom: 16px;
+      animation: fadeSlideIn 0.4s ease-out;
+    }
+
+    .empty-state.hidden { display: none; }
+
+    .empty-icon {
+      font-size: 28px;
+      line-height: 1;
+      margin-bottom: 8px;
+    }
+
+    .empty-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--success);
+      margin-bottom: 4px;
+    }
+
+    .empty-sub {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    /* ── Button ── */
+    button {
+      width: 100%;
+      padding: 10px 16px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      cursor: pointer;
+      background: var(--bg-surface);
+      color: var(--text-primary);
+      transition: background 0.12s, border-color 0.12s;
+    }
+
+    button:hover:not(:disabled) {
+      background: var(--bg-surface-hover);
+      border-color: var(--border-focus);
+    }
+
+    button:active:not(:disabled) { transform: scale(0.98); }
+    button:disabled { opacity: 0.3; cursor: not-allowed; }
+    button.hidden { display: none; }
+
+    #actionButton.state-nav {
+      background: var(--accent-dim);
+      border-color: rgba(99, 102, 241, 0.2);
+      color: var(--accent);
+    }
+    #actionButton.state-nav:hover { background: rgba(99, 102, 241, 0.2); border-color: rgba(99, 102, 241, 0.35); }
+
+    #actionButton.state-start {
+      background: var(--success-dim);
+      border-color: rgba(34, 197, 94, 0.2);
+      color: var(--success);
+    }
+    #actionButton.state-start:hover { background: rgba(34, 197, 94, 0.2); border-color: rgba(34, 197, 94, 0.35); }
+
+    #actionButton.state-stop {
+      background: var(--danger-dim);
+      border-color: rgba(239, 68, 68, 0.2);
+      color: var(--danger);
+    }
+    #actionButton.state-stop:hover { background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.35); }
+
+    /* ── Review Card ── */
+    .review-card {
+      margin-top: 16px;
+      padding: 16px;
+      background: var(--accent-dim);
+      border: 1px solid rgba(99, 102, 241, 0.2);
+      border-radius: var(--radius);
+      animation: fadeSlideIn 0.3s ease-out;
+    }
+
+    .review-card.hidden { display: none; }
+
+    @keyframes fadeSlideIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .review-card p {
+      font-size: 13px;
+      color: var(--text-primary);
+      line-height: 1.5;
+      margin-bottom: 12px;
+    }
+
+    .review-card .review-stat {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 700;
+      color: var(--accent);
+    }
+
+    .review-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .review-actions button {
+      width: auto;
+      padding: 8px 16px;
+      font-size: 12px;
+    }
+
+    .btn-review {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .btn-review:hover:not(:disabled) { background: #5558e6; border-color: #5558e6; }
+
+    .btn-dismiss {
+      background: transparent;
+      border-color: var(--border);
+      color: var(--text-tertiary);
+    }
+    .btn-dismiss:hover:not(:disabled) { background: var(--bg-surface); color: var(--text-secondary); }
+
+    /* ── Footer ── */
+    .footer {
+      text-align: center;
+      padding-top: 12px;
+      margin-top: 16px;
+    }
+
+    .footer a {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      text-decoration: none;
+      transition: color 0.3s, font-size 0.3s;
+    }
+
+    .footer a:hover { color: var(--text-secondary); }
+
+    .footer a.highlight {
+      display: inline-block;
+      color: var(--success);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 16px;
+      border-radius: 12px;
+      background: var(--success-dim);
+      box-shadow: 0 0 12px rgba(34, 197, 94, 0.25), 0 0 24px rgba(34, 197, 94, 0.1);
+      transition: color 0.2s, box-shadow 0.2s, background 0.2s;
+      animation: reviewGlow 2s ease infinite;
+    }
+
+    .footer a.highlight:hover {
+      color: #2dd870;
+      background: rgba(34, 197, 94, 0.2);
+      box-shadow: 0 0 16px rgba(34, 197, 94, 0.35), 0 0 32px rgba(34, 197, 94, 0.15);
+    }
+
+    @keyframes reviewGlow {
+      0%, 100% { box-shadow: 0 0 12px rgba(34, 197, 94, 0.25), 0 0 24px rgba(34, 197, 94, 0.1); }
+      50% { box-shadow: 0 0 16px rgba(34, 197, 94, 0.4), 0 0 32px rgba(34, 197, 94, 0.2); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .footer a.highlight { animation: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <img src="icon.svg" alt="">
+    <h1>Watch Later Cleaner</h1>
+  </div>
+
+  <div id="status" class="status-bar">Ready</div>
+
+  <div id="progress" class="progress-section hidden">
+    <div class="progress-row">
+      <div>
+        <span id="count" class="progress-count">0</span>
+        <span class="progress-label"> removed</span>
+      </div>
+      <div id="totalLabel" class="progress-total"></div>
+    </div>
+    <div class="progress-bar-track">
+      <div id="progressBar" class="progress-bar-fill"></div>
+    </div>
+    <div id="eta" class="progress-eta"></div>
+  </div>
+
+  <div id="emptyState" class="empty-state hidden">
+    <div class="empty-icon">&#10024;</div>
+    <div class="empty-title">All clear!</div>
+    <div class="empty-sub">Your Watch Later playlist is empty.</div>
+  </div>
+
+  <button id="actionButton" class="state-start">Start Cleaning</button>
+
+  <div id="reviewCard" class="review-card hidden">
+    <p>You just cleaned <span id="reviewStat" class="review-stat">0</span> videos. If this saved you time, a quick review helps others find it too.</p>
+    <div class="review-actions">
+      <button id="reviewYes" class="btn-review">Leave a review</button>
+      <button id="reviewDismiss" class="btn-dismiss">Not now</button>
+    </div>
+  </div>
+
+  <div class="footer">
+    <a id="reviewLink" href="#">Leave a review</a>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

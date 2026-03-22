@@ -1,0 +1,14 @@
+<!-- Icon for YouTube Watch Later Cleaner: "WL" text with YouTube logo and a red prohibition symbol -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+    <rect width="48" height="48" fill="white"/>
+    <text x="6" y="32" font-family="Arial" font-size="24" font-weight="bold" fill="black">WL</text>
+    
+    <!-- YouTube logo -->
+    <rect x="18" y="34.25" width="12" height="7.5" rx="1.5" fill="red" stroke="black" stroke-width="0.03"/>
+    <polygon points="23,36.5 26,38 23,39.5" fill="white"/>
+    
+    <!-- Not allowed sign -->
+    <rect x="8" y="8" width="45.2548" height="2" fill="red" stroke="white" stroke-width="0.03" transform="rotate(45 8 8)"/>
+    <circle cx="24" cy="24" r="22" stroke="red" stroke-width="4" fill="none"/>
+    
+</svg>
