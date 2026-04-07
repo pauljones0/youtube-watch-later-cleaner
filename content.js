@@ -301,6 +301,63 @@ function getYtConfig() {
   }
 }
 
+// --- Wait for YouTube ---
+
+async function waitForYouTubeReady(maxWaitMs = 15000) {
+  dbg('waitForYouTubeReady: starting, maxWait=' + maxWaitMs + 'ms');
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    if (!window.cleanerIsRunning) {
+      dbg('waitForYouTubeReady: stopped while waiting');
+      return null;
+    }
+    const ytcfg = getYtConfig();
+    if (ytcfg) {
+      dbg('waitForYouTubeReady: ready after ' + (Date.now() - start) + 'ms');
+      return ytcfg;
+    }
+    const elapsed = Math.round((Date.now() - start) / 1000);
+    sendLog(`Waiting for YouTube to load... (${elapsed}s)`, 'warning');
+    await sleep(500);
+  }
+  warn('waitForYouTubeReady: timed out after ' + maxWaitMs + 'ms');
+  return null;
+}
+
+// --- Page-context fetch (uses YouTube's own fetch, same-origin with cookies) ---
+
+async function pageFetch(url, headers, body) {
+  dbg('pageFetch: calling page fetch for', url.substring(0, 60) + '...');
+
+  const opts = cloneInto({
+    method: 'POST',
+    headers: headers,
+    body: body,
+    credentials: 'include',
+  }, window.wrappedJSObject);
+
+  // Race the page fetch against a 15s timeout
+  const fetchPromise = new Promise(async (resolve, reject) => {
+    try {
+      const resp = await window.wrappedJSObject.fetch(url, opts);
+      // Read text in page context, then pull it into content script
+      const text = await resp.text();
+      // text crosses the compartment boundary as a string (primitive), safe to use directly
+      resolve({ status: resp.status, text: '' + text });
+    } catch (e) {
+      reject(new Error('' + e.message));
+    }
+  });
+
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('timeout')), 15000)
+  );
+
+  const result = await Promise.race([fetchPromise, timeoutPromise]);
+  dbg('pageFetch: HTTP', result.status);
+  return JSON.parse(result.text);
+}
+
 // --- Auth ---
 
 async function generateSapisidHash() {
@@ -329,76 +386,53 @@ function getApiHeaders(auth) {
   };
 }
 
-// --- Wait for YouTube ---
-
-async function waitForYouTubeReady(maxWaitMs = 15000) {
-  dbg('waitForYouTubeReady: starting, maxWait=' + maxWaitMs + 'ms');
-  const start = Date.now();
-  while (Date.now() - start < maxWaitMs) {
-    if (!window.cleanerIsRunning) {
-      dbg('waitForYouTubeReady: stopped while waiting');
-      return null;
-    }
-    const ytcfg = getYtConfig();
-    if (ytcfg) {
-      dbg('waitForYouTubeReady: ready after ' + (Date.now() - start) + 'ms');
-      return ytcfg;
-    }
-    const elapsed = Math.round((Date.now() - start) / 1000);
-    sendLog(`Waiting for YouTube to load... (${elapsed}s)`, 'warning');
-    await sleep(500);
-  }
-  warn('waitForYouTubeReady: timed out after ' + maxWaitMs + 'ms');
-  return null;
-}
-
-// --- Browse API ---
+// --- Browse API (via page-context fetch) ---
 
 async function fetchPlaylistPage(auth, ytcfg, continuationToken) {
-  dbg('fetchPlaylistPage: continuation=' + (continuationToken ? 'yes(' + continuationToken.substring(0, 20) + '...)' : 'no (first page)'));
+  dbg('fetchPlaylistPage: continuation=' + (continuationToken ? 'yes' : 'no (first page)'));
 
   const body = continuationToken
     ? { context: ytcfg.context, continuation: continuationToken }
     : { context: ytcfg.context, browseId: 'VLWL', params: decodeURIComponent('wgYCCAA%3D') };
 
-  let resp;
+  let rb;
   try {
-    resp = await fetch(`https://www.youtube.com/youtubei/v1/browse?key=${ytcfg.apiKey}&prettyPrint=false`, {
-      method: 'POST',
-      headers: getApiHeaders(auth),
-      credentials: 'include',
-      body: JSON.stringify(body),
-    });
+    rb = await pageFetch(
+      `https://www.youtube.com/youtubei/v1/browse?key=${ytcfg.apiKey}&prettyPrint=false`,
+      getApiHeaders(auth),
+      JSON.stringify(body)
+    );
   } catch (e) {
-    err('fetchPlaylistPage: fetch error:', e.message);
-    return { ids: [], continuation: null };
+    err('fetchPlaylistPage: error:', e.message);
+    return { ids: [], continuation: null, error: e.message };
   }
-
-  dbg('fetchPlaylistPage: HTTP', resp.status);
-
-  const rb = await resp.json().catch(e => { err('fetchPlaylistPage: JSON parse error:', e.message); return null; });
-  if (!rb) return { ids: [], continuation: null };
 
   let items;
   if (continuationToken) {
     const appendAction = rb.onResponseReceivedActions?.find(a => a.appendContinuationItemsAction);
     items = appendAction?.appendContinuationItemsAction?.continuationItems || [];
-    dbg('fetchPlaylistPage: continuation response, items:', items.length);
   } else {
     const pvl = rb.contents?.twoColumnBrowseResultsRenderer?.tabs?.[0]
       ?.tabRenderer?.content?.sectionListRenderer?.contents?.[0]
       ?.itemSectionRenderer?.contents?.[0]?.playlistVideoListRenderer;
     items = pvl?.contents || [];
-    dbg('fetchPlaylistPage: first page response, items:', items.length);
+
+    // Check for YouTube alerts (e.g., "playlist does not exist")
+    if (items.length === 0 && rb.alerts) {
+      const alertText = rb.alerts.map(a => {
+        const ar = a.alertWithButtonRenderer || a.alertRenderer;
+        return ar?.text?.simpleText || ar?.text?.runs?.map(r => r.text).join('') || '';
+      }).filter(Boolean).join('; ');
+      if (alertText) {
+        warn('fetchPlaylistPage: YouTube alert:', alertText);
+        return { ids: [], continuation: null, error: 'yt-alert: ' + alertText };
+      }
+    }
   }
 
-  const allIds = items
+  const ids = items
     .filter(i => i.playlistVideoRenderer?.setVideoId)
     .map(i => i.playlistVideoRenderer.setVideoId);
-
-  // YouTube sometimes returns 101 videos per page — log the actual count
-  dbg('fetchPlaylistPage: raw video IDs:', allIds.length);
-  const ids = allIds;
 
   const contItem = items.find(i => i.continuationItemRenderer);
   const cmds = contItem?.continuationItemRenderer?.continuationEndpoint?.commandExecutorCommand?.commands;
@@ -407,10 +441,10 @@ async function fetchPlaylistPage(auth, ytcfg, continuationToken) {
     || null;
 
   dbg('fetchPlaylistPage: got', ids.length, 'setVideoIds, hasNext:', !!nextToken);
-  return { ids, continuation: nextToken };
+  return { ids, continuation: nextToken, error: null };
 }
 
-// --- Batch remove ---
+// --- Batch remove (via page-context fetch) ---
 
 async function batchRemoveVideos(auth, ytcfg, setVideoIds) {
   dbg('batchRemoveVideos: removing', setVideoIds.length, 'videos');
@@ -422,27 +456,19 @@ async function batchRemoveVideos(auth, ytcfg, setVideoIds) {
     params: 'CAFAAQ==',
   };
 
-  let resp;
   try {
-    resp = await fetch(`https://www.youtube.com/youtubei/v1/browse/edit_playlist?key=${ytcfg.apiKey}&prettyPrint=false`, {
-      method: 'POST',
-      headers: getApiHeaders(auth),
-      credentials: 'include',
-      body: JSON.stringify(body),
-    });
+    const rb = await pageFetch(
+      `https://www.youtube.com/youtubei/v1/browse/edit_playlist?key=${ytcfg.apiKey}&prettyPrint=false`,
+      getApiHeaders(auth),
+      JSON.stringify(body)
+    );
+    const ok = rb?.status === 'STATUS_SUCCEEDED';
+    dbg('batchRemoveVideos: ok:', ok, 'status:', rb?.status);
+    return ok;
   } catch (e) {
-    err('batchRemoveVideos: fetch error:', e.message);
+    err('batchRemoveVideos: error:', e.message);
     return false;
   }
-
-  const rb = await resp.json().catch(e => { err('batchRemoveVideos: JSON parse error:', e.message); return null; });
-  const status = rb?.status;
-  const ok = status === 'STATUS_SUCCEEDED';
-  dbg('batchRemoveVideos: HTTP', resp.status, 'appStatus:', status, 'ok:', ok);
-  if (!ok) {
-    warn('batchRemoveVideos: FAILED. Response keys:', rb ? Object.keys(rb) : 'null');
-  }
-  return ok;
 }
 
 // --- Main cleaning loop ---
@@ -486,7 +512,21 @@ async function cleanAllAPI() {
 
     if (page.ids.length === 0) {
       dbg('cleanAllAPI: no IDs on page', pageNum);
+
+      // Sanity check: if API returned nothing but DOM shows videos, the API failed
       if (totalRemoved === 0 && !continuation) {
+        const domCount = getPlaylistTotal();
+        if (domCount > 0) {
+          warn('cleanAllAPI: API returned 0 videos but DOM shows', domCount, '— falling back to UI');
+          if (page.error) {
+            sendLog(`API error (${page.error}) — using slower UI method`, 'warning');
+          } else {
+            sendLog('API returned empty — using slower UI method', 'warning');
+          }
+          updateOverlayStatus('switching to slower method...');
+          await cleanFallbackUI(0);
+          return;
+        }
         sendLog('Playlist is already empty.', 'success');
       } else {
         sendLog(`Done! Removed ${totalRemoved} videos.`, 'success');
@@ -523,32 +563,23 @@ async function cleanAllAPI() {
       updateOverlayProgress(totalRemoved, totalEstimate);
       await sleep(300);
     } else {
-      warn('cleanAllAPI: batch FAILED, retrying with fresh auth...');
-      const newAuth = await generateSapisidHash();
-      if (newAuth) {
-        const retryOk = await batchRemoveVideos(newAuth, ytcfg, batch);
-        if (retryOk) {
-          totalRemoved += batch.length;
-          window.cleanerState.count = totalRemoved;
-          dbg('cleanAllAPI: retry SUCCESS, totalRemoved now:', totalRemoved);
-          sendCount(totalRemoved);
-          sendLog(`${totalRemoved} removed (after retry)`, 'success');
-          updateOverlayProgress(totalRemoved, totalEstimate);
-        } else {
-          err('cleanAllAPI: retry also FAILED. Stopping batch API, falling back to UI.');
-          sendLog('Batch API failed — using slower UI method', 'warning');
-          updateOverlayStatus('switching to slower method...');
-          await cleanFallbackUI(totalRemoved);
-          return;
-        }
+      warn('cleanAllAPI: batch FAILED, retrying...');
+      await sleep(1000);
+      const retryOk = await batchRemoveVideos(auth, ytcfg, batch);
+      if (retryOk) {
+        totalRemoved += batch.length;
+        window.cleanerState.count = totalRemoved;
+        dbg('cleanAllAPI: retry SUCCESS, totalRemoved now:', totalRemoved);
+        sendCount(totalRemoved);
+        sendLog(`${totalRemoved} removed (after retry)`, 'success');
+        updateOverlayProgress(totalRemoved, totalEstimate);
       } else {
-        err('cleanAllAPI: could not regenerate auth. Falling back to UI.');
-        sendLog('Auth expired — using slower UI method', 'warning');
+        err('cleanAllAPI: retry also FAILED. Falling back to UI.');
+        sendLog('Batch API failed — using slower UI method', 'warning');
         updateOverlayStatus('switching to slower method...');
         await cleanFallbackUI(totalRemoved);
         return;
       }
-      await sleep(1000);
     }
 
     // Next page

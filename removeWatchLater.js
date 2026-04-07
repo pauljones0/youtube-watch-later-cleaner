@@ -38,12 +38,18 @@
   const apiKey = () => window.ytcfg?.data_?.INNERTUBE_API_KEY;
   const context = () => window.ytcfg?.data_?.INNERTUBE_CONTEXT;
 
+  function timedFetch(url, opts, ms = 15000) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), ms);
+    return fetch(url, { ...opts, signal: ctrl.signal }).finally(() => clearTimeout(t));
+  }
+
   async function fetchPage(auth, contToken) {
     const body = contToken
       ? { context: context(), continuation: contToken }
       : { context: context(), browseId: 'VLWL', params: decodeURIComponent('wgYCCAA%3D') };
 
-    const resp = await fetch(`/youtubei/v1/browse?key=${apiKey()}&prettyPrint=false`, {
+    const resp = await timedFetch(`/youtubei/v1/browse?key=${apiKey()}&prettyPrint=false`, {
       method: 'POST', headers: headers(auth), credentials: 'include', body: JSON.stringify(body),
     });
     const rb = await resp.json().catch(() => null);
@@ -78,7 +84,7 @@
       actions: setVideoIds.map(id => ({ setVideoId: id, action: 'ACTION_REMOVE_VIDEO' })),
       params: 'CAFAAQ==',
     };
-    const resp = await fetch(`/youtubei/v1/browse/edit_playlist?key=${apiKey()}&prettyPrint=false`, {
+    const resp = await timedFetch(`/youtubei/v1/browse/edit_playlist?key=${apiKey()}&prettyPrint=false`, {
       method: 'POST', headers: headers(auth), credentials: 'include', body: JSON.stringify(body),
     });
     const rb = await resp.json().catch(() => null);
