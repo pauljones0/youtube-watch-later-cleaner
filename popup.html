@@ -46,12 +46,11 @@
       margin-bottom: 16px;
     }
 
-    .header img { width: 24px; height: 24px; opacity: 0.9; }
-
     .header h1 {
-      font-size: 14px;
-      font-weight: 600;
-      letter-spacing: -0.02em;
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      color: var(--text-secondary);
     }
 
     /* ── Status ── */
@@ -300,7 +299,7 @@
     }
 
     .footer a {
-      font-size: 11px;
+      font-size: 12px;
       color: var(--text-tertiary);
       text-decoration: none;
       transition: color 0.3s, font-size 0.3s;
@@ -335,12 +334,39 @@
     @media (prefers-reduced-motion: reduce) {
       .footer a.highlight { animation: none; }
     }
+
+    /* ── Bug Report ── */
+    button.bug-btn {
+      width: auto;
+      padding: 4px;
+      margin-left: auto;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: var(--radius);
+      color: var(--danger);
+      display: flex;
+      align-items: center;
+      transition: opacity 0.15s, color 0.15s, background 0.15s, border-color 0.15s;
+    }
+    button.bug-btn:hover:not(:disabled) {
+      background: var(--danger-dim);
+      border-color: rgba(239, 68, 68, 0.2);
+    }
+    button.bug-btn:active:not(:disabled) { transform: none; }
   </style>
 </head>
 <body>
   <div class="header">
-    <img src="icon.svg" alt="">
     <h1>Watch Later Cleaner</h1>
+    <button id="bugReport" class="bug-btn" title="Report a bug">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5.5 2.5C5.5 1.7 6.6 1 8 1s2.5.7 2.5 1.5"/>
+        <rect x="4.5" y="5" width="7" height="8" rx="3.5" fill="var(--danger-dim)"/>
+        <path d="M2 6.5h2.5M11.5 6.5H14M2 10.5h2.5M11.5 10.5H14"/>
+        <path d="M3.5 3.5L5 5M12.5 3.5L11 5"/>
+        <path d="M8 8v2.5M6 8.5h4"/>
+      </svg>
+    </button>
   </div>
 
   <div id="status" class="status-bar">Ready</div>

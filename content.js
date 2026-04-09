@@ -10,16 +10,32 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 const PREFIX = '[WLC]';
 
+const LOG_BUFFER_MAX = 1000;
+const logBuffer = [];
+
+function pushLog(level, args) {
+  const msg = args.map(a => {
+    if (a == null) return String(a);
+    if (typeof a === 'object') try { return JSON.stringify(a); } catch (_) { return String(a); }
+    return String(a);
+  }).join(' ');
+  logBuffer.push({ t: Date.now(), l: level, m: msg });
+  if (logBuffer.length > LOG_BUFFER_MAX) logBuffer.shift();
+}
+
 function dbg(...args) {
   console.log(PREFIX, ...args);
+  pushLog('D', args);
 }
 
 function warn(...args) {
   console.warn(PREFIX, ...args);
+  pushLog('W', args);
 }
 
 function err(...args) {
   console.error(PREFIX, ...args);
+  pushLog('E', args);
 }
 
 // Send status to popup
@@ -475,6 +491,7 @@ async function batchRemoveVideos(auth, ytcfg, setVideoIds) {
 
 async function cleanAllAPI() {
   dbg('=== cleanAllAPI START ===');
+  window.cleanerState.method = 'api';
 
   const ytcfg = await waitForYouTubeReady();
   if (!ytcfg) {
@@ -674,6 +691,8 @@ async function showHiddenVideosUI() {
 
 async function cleanFallbackUI(startCount) {
   dbg('=== cleanFallbackUI START, startCount:', startCount, '===');
+  window.cleanerState.method = 'fallback';
+  window.cleanerState.apiFailedAt = startCount;
   if (!window.cleanerIsRunning) { dbg('cleanFallbackUI: not running, exit'); return; }
 
   const totalEstimate = getPlaylistTotal();
@@ -755,7 +774,7 @@ async function cleanFallbackUI(startCount) {
 
 // --- Shared state for popup sync ---
 
-window.cleanerState = { running: false, done: false, count: 0, total: 0, startTime: null };
+window.cleanerState = { running: false, done: false, count: 0, total: 0, startTime: null, method: null, apiFailedAt: null };
 
 browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
   dbg('onMessage:', message.command);
@@ -764,6 +783,17 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.command === 'status') {
     dbg('onMessage: status query, returning state:', JSON.stringify(window.cleanerState));
     sendResponse(window.cleanerState);
+    return;
+  }
+
+  // Log collection for bug reports
+  if (message.command === 'getLogs') {
+    sendResponse({
+      logs: logBuffer.slice(),
+      state: window.cleanerState,
+      url: window.location.href,
+      ua: navigator.userAgent,
+    });
     return;
   }
 
@@ -790,7 +820,7 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendLog('Starting...', 'success');
       window.cleanerIsRunning = true;
       window.cleanerRefreshAttempts = 0;
-      window.cleanerState = { running: true, done: false, count: 0, total: getPlaylistTotal(), startTime: Date.now() };
+      window.cleanerState = { running: true, done: false, count: 0, total: getPlaylistTotal(), startTime: Date.now(), method: null, apiFailedAt: null };
       dbg('onMessage: cleanerIsRunning = true, state:', JSON.stringify(window.cleanerState));
       createOverlay();
       await cleanAllAPI();

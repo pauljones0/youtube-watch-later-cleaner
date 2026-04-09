@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const reviewDismiss = $('reviewDismiss');
   const reviewLink = $('reviewLink');
   const emptyState = $('emptyState');
+  const bugReport = $('bugReport');
 
   let currentTab = null;
   let videosRemoved = 0;
@@ -121,6 +122,93 @@ document.addEventListener('DOMContentLoaded', async () => {
   const highlightReviewLink = () => {
     reviewLink.classList.add('highlight');
   };
+
+  // --- Bug Report ---
+
+  bugReport.addEventListener('click', async () => {
+    let logs = [];
+    let state = {};
+    let sysInfo = {};
+
+    if (currentTab) {
+      try {
+        const result = await browser.tabs.sendMessage(currentTab.id, { command: 'getLogs' });
+        logs = result.logs || [];
+        state = result.state || {};
+        sysInfo = { url: result.url, ua: result.ua };
+      } catch (_) {}
+    }
+
+    const version = browser.runtime.getManifest().version;
+
+    // Format logs for clipboard
+    const logLines = logs.map(l => {
+      const ts = new Date(l.t).toISOString().substr(11, 12);
+      return `[${ts}] ${l.l} ${l.m}`;
+    }).join('\n');
+
+    // Copy logs to clipboard
+    const clipText = logLines || '(no logs captured)';
+    try {
+      await navigator.clipboard.writeText(clipText);
+    } catch (_) {
+      const ta = document.createElement('textarea');
+      ta.value = clipText;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+    }
+
+    // Build method description
+    let method = state.method || 'unknown';
+    if (state.method === 'fallback' && state.apiFailedAt > 0) {
+      method = `API then fallback (switched at video #${state.apiFailedAt})`;
+    } else if (state.method === 'fallback') {
+      method = 'Fallback (API was not available)';
+    } else if (state.method === 'api') {
+      method = 'API (fast mode)';
+    }
+
+    let duration = 'N/A';
+    if (state.startTime) {
+      const sec = Math.round((Date.now() - state.startTime) / 1000);
+      duration = sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${sec % 60}s`;
+    }
+
+    const subject = `Bug Report — Watch Later Cleaner v${version}`;
+    const body = [
+      'WHAT HAPPENED?',
+      '----------------------------------------',
+      '(Replace this with a description of what you experienced)',
+      '',
+      '',
+      '',
+      'SYSTEM INFO',
+      '----------------------------------------',
+      `Extension: v${version}`,
+      `Method: ${method}`,
+      `Videos removed: ${state.count || 0}`,
+      `Playlist size: ~${state.total || 'unknown'}`,
+      `Duration: ${duration}`,
+      `Browser: ${sysInfo.ua || navigator.userAgent}`,
+      '',
+      '',
+      'CONSOLE LOGS',
+      '----------------------------------------',
+      'Full logs were copied to your clipboard.',
+      'Paste them here (Ctrl+V / Cmd+V):',
+      '',
+      '',
+    ].join('\n');
+
+    const mailto = `mailto:ytwl@pauljones0.uk?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    const a = document.createElement('a');
+    a.href = mailto;
+    a.click();
+
+    setStatus('Logs copied — opening email...', 'success');
+  });
 
   // --- Tab / page detection ---
 

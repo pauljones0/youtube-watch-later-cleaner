@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "YouTube Watch Later Cleaner",
-  "version": "2.1",
+  "version": "2.2",
   "description": "Batch-remove all videos from your YouTube Watch Later playlist in seconds",
   "icons": {
     "48": "icon.svg",
