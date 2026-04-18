@@ -37,22 +37,6 @@
       -webkit-font-smoothing: antialiased;
     }
 
-    .header {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding-bottom: 16px;
-      border-bottom: 1px solid var(--border);
-      margin-bottom: 16px;
-    }
-
-    .header h1 {
-      font-size: 12px;
-      font-weight: 500;
-      letter-spacing: 0.01em;
-      color: var(--text-secondary);
-    }
-
     /* ── Status ── */
     .status-bar {
       display: flex;
@@ -109,6 +93,12 @@
       font-weight: 700;
       letter-spacing: -0.03em;
       color: var(--text-primary);
+      transition: color 0.35s ease, text-shadow 0.35s ease;
+    }
+
+    .progress-count.preview-active {
+      color: #4ade80;
+      text-shadow: 0 0 12px rgba(74, 222, 128, 0.24);
     }
 
     .progress-label {
@@ -236,99 +226,139 @@
     }
     #actionButton.state-stop:hover { background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.35); }
 
-    /* ── Review Card ── */
-    .review-card {
-      margin-top: 16px;
-      padding: 16px;
-      background: var(--accent-dim);
-      border: 1px solid rgba(99, 102, 241, 0.2);
-      border-radius: var(--radius);
-      animation: fadeSlideIn 0.3s ease-out;
+    /* ── Advanced ── */
+    .advanced-tools {
+      margin-top: 10px;
+      margin-bottom: 16px;
     }
 
-    .review-card.hidden { display: none; }
+    button.advanced-toggle {
+      width: auto;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 12px;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    button.advanced-toggle:hover:not(:disabled) {
+      background: transparent;
+      border-color: transparent;
+      color: var(--text-primary);
+    }
+
+    button.advanced-toggle:active:not(:disabled) { transform: none; }
+
+    .advanced-toggle::after {
+      content: '\25BE';
+      font-size: 10px;
+      transition: transform 0.15s ease;
+    }
+
+    .advanced-toggle.expanded::after {
+      transform: rotate(180deg);
+    }
+
+    .advanced-panel {
+      margin-top: 10px;
+      padding: 12px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      animation: fadeSlideIn 0.2s ease-out;
+    }
+
+    .advanced-panel.hidden { display: none; }
+
+    .advanced-label {
+      display: block;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-primary);
+      margin-bottom: 8px;
+      line-height: 1.35;
+    }
+
+    .advanced-value {
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    .advanced-slider {
+      width: 100%;
+      accent-color: var(--accent);
+      margin-bottom: 8px;
+    }
+
+    .advanced-help {
+      font-size: 11px;
+      color: var(--text-secondary);
+      line-height: 1.35;
+    }
+
+    .advanced-help:empty { display: none; }
 
     @keyframes fadeSlideIn {
       from { opacity: 0; transform: translateY(8px); }
       to   { opacity: 1; transform: translateY(0); }
     }
 
-    .review-card p {
-      font-size: 13px;
-      color: var(--text-primary);
-      line-height: 1.5;
-      margin-bottom: 12px;
-    }
-
-    .review-card .review-stat {
-      font-family: 'JetBrains Mono', monospace;
-      font-weight: 700;
-      color: var(--accent);
-    }
-
-    .review-actions {
-      display: flex;
-      gap: 8px;
-    }
-
-    .review-actions button {
-      width: auto;
-      padding: 8px 16px;
-      font-size: 12px;
-    }
-
-    .btn-review {
-      background: var(--accent);
-      border-color: var(--accent);
-      color: #fff;
-    }
-    .btn-review:hover:not(:disabled) { background: #5558e6; border-color: #5558e6; }
-
-    .btn-dismiss {
-      background: transparent;
-      border-color: var(--border);
-      color: var(--text-tertiary);
-    }
-    .btn-dismiss:hover:not(:disabled) { background: var(--bg-surface); color: var(--text-secondary); }
-
     /* ── Footer ── */
     .footer {
-      text-align: center;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
       padding-top: 12px;
       margin-top: 16px;
     }
 
     .footer a {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      min-height: 30px;
+      padding: 6px 14px;
+      border-radius: 12px;
+      border: 1px solid transparent;
+      background: transparent;
       font-size: 12px;
       color: var(--text-tertiary);
       text-decoration: none;
-      transition: color 0.3s, font-size 0.3s;
+      transition: color 0.3s, font-size 0.3s, background 0.2s, border-color 0.2s, box-shadow 0.2s;
     }
 
-    .footer a:hover { color: var(--text-secondary); }
+    .footer a:hover {
+      color: var(--text-secondary);
+      border-color: rgba(255, 255, 255, 0.06);
+      background: rgba(255, 255, 255, 0.02);
+    }
 
     .footer a.highlight {
-      display: inline-block;
-      color: var(--success);
-      font-size: 12px;
-      font-weight: 600;
-      padding: 6px 16px;
-      border-radius: 12px;
-      background: var(--success-dim);
-      box-shadow: 0 0 12px rgba(34, 197, 94, 0.25), 0 0 24px rgba(34, 197, 94, 0.1);
-      transition: color 0.2s, box-shadow 0.2s, background 0.2s;
+      color: #4ade80;
+      font-size: 13px;
+      font-weight: 700;
+      border-color: rgba(34, 197, 94, 0.2);
+      background: rgba(34, 197, 94, 0.18);
+      box-shadow: 0 0 12px rgba(34, 197, 94, 0.3), 0 0 24px rgba(34, 197, 94, 0.15);
       animation: reviewGlow 2s ease infinite;
     }
 
     .footer a.highlight:hover {
-      color: #2dd870;
-      background: rgba(34, 197, 94, 0.2);
-      box-shadow: 0 0 16px rgba(34, 197, 94, 0.35), 0 0 32px rgba(34, 197, 94, 0.15);
+      color: #86efac;
+      background: rgba(34, 197, 94, 0.25);
+      box-shadow: 0 0 16px rgba(34, 197, 94, 0.45), 0 0 32px rgba(34, 197, 94, 0.2);
     }
 
     @keyframes reviewGlow {
-      0%, 100% { box-shadow: 0 0 12px rgba(34, 197, 94, 0.25), 0 0 24px rgba(34, 197, 94, 0.1); }
-      50% { box-shadow: 0 0 16px rgba(34, 197, 94, 0.4), 0 0 32px rgba(34, 197, 94, 0.2); }
+      0%, 100% { box-shadow: 0 0 12px rgba(34, 197, 94, 0.3), 0 0 24px rgba(34, 197, 94, 0.15); }
+      50% { box-shadow: 0 0 18px rgba(34, 197, 94, 0.5), 0 0 36px rgba(34, 197, 94, 0.25); }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -339,7 +369,7 @@
     button.bug-btn {
       width: auto;
       padding: 4px;
-      margin-left: auto;
+      justify-self: end;
       background: transparent;
       border: 1px solid transparent;
       border-radius: var(--radius);
@@ -356,26 +386,13 @@
   </style>
 </head>
 <body>
-  <div class="header">
-    <h1>Watch Later Cleaner</h1>
-    <button id="bugReport" class="bug-btn" title="Report a bug">
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M5.5 2.5C5.5 1.7 6.6 1 8 1s2.5.7 2.5 1.5"/>
-        <rect x="4.5" y="5" width="7" height="8" rx="3.5" fill="var(--danger-dim)"/>
-        <path d="M2 6.5h2.5M11.5 6.5H14M2 10.5h2.5M11.5 10.5H14"/>
-        <path d="M3.5 3.5L5 5M12.5 3.5L11 5"/>
-        <path d="M8 8v2.5M6 8.5h4"/>
-      </svg>
-    </button>
-  </div>
-
   <div id="status" class="status-bar">Ready</div>
 
   <div id="progress" class="progress-section hidden">
     <div class="progress-row">
       <div>
         <span id="count" class="progress-count">0</span>
-        <span class="progress-label"> removed</span>
+        <span id="progressLabel" class="progress-label"> to delete</span>
       </div>
       <div id="totalLabel" class="progress-total"></div>
     </div>
@@ -393,16 +410,28 @@
 
   <button id="actionButton" class="state-start">Start Cleaning</button>
 
-  <div id="reviewCard" class="review-card hidden">
-    <p>You just cleaned <span id="reviewStat" class="review-stat">0</span> videos. If this saved you time, a quick review helps others find it too.</p>
-    <div class="review-actions">
-      <button id="reviewYes" class="btn-review">Leave a review</button>
-      <button id="reviewDismiss" class="btn-dismiss">Not now</button>
+  <div class="advanced-tools">
+    <button id="advancedToggle" class="advanced-toggle" type="button" aria-expanded="false">Advanced</button>
+    <div id="advancedPanel" class="advanced-panel hidden">
+      <label for="progressThreshold" class="advanced-label">
+        Delete all videos with &gt;= <span id="progressThresholdValue" class="advanced-value">0%</span> watch progress
+      </label>
+      <input id="progressThreshold" class="advanced-slider" type="range" min="0" max="100" step="1" value="0">
+      <div id="advancedHelp" class="advanced-help"></div>
     </div>
   </div>
 
   <div class="footer">
     <a id="reviewLink" href="#">Leave a review</a>
+    <button id="bugReport" class="bug-btn" title="Report a bug">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5.5 2.5C5.5 1.7 6.6 1 8 1s2.5.7 2.5 1.5"/>
+        <rect x="4.5" y="5" width="7" height="8" rx="3.5" fill="var(--danger-dim)"/>
+        <path d="M2 6.5h2.5M11.5 6.5H14M2 10.5h2.5M11.5 10.5H14"/>
+        <path d="M3.5 3.5L5 5M12.5 3.5L11 5"/>
+        <path d="M8 8v2.5M6 8.5h4"/>
+      </svg>
+    </button>
   </div>
 
   <script src="popup.js"></script>

@@ -5,29 +5,114 @@ document.addEventListener('DOMContentLoaded', async () => {
   const statusDiv = $('status');
   const progressSection = $('progress');
   const countSpan = $('count');
+  const progressLabel = $('progressLabel');
   const totalLabel = $('totalLabel');
   const progressBar = $('progressBar');
   const etaDiv = $('eta');
-  const reviewCard = $('reviewCard');
-  const reviewYes = $('reviewYes');
-  const reviewDismiss = $('reviewDismiss');
   const reviewLink = $('reviewLink');
   const emptyState = $('emptyState');
   const bugReport = $('bugReport');
+  const advancedToggle = $('advancedToggle');
+  const advancedPanel = $('advancedPanel');
+  const progressThreshold = $('progressThreshold');
+  const progressThresholdValue = $('progressThresholdValue');
+  const advancedHelp = $('advancedHelp');
+
+  const SETTINGS_KEY = 'cleanerSettings';
+  const PREVIEW_CACHE_KEY = 'cleanerPreviewHistogram';
+  const PREVIEW_CACHE_MAX_AGE_MS = 10 * 60 * 1000;
+  const DEFAULT_UI_STATE = Object.freeze({
+    sliderThreshold: 0,
+    advancedOpen: false,
+  });
 
   let currentTab = null;
-  let videosRemoved = 0;
+  let currentTabState = null;
+  let buttonState = 'start';
   let totalVideos = 0;
   let startTime = null;
+  let currentUIState = { ...DEFAULT_UI_STATE };
+  let previewCache = null;
+  let previewState = {
+    ready: false,
+    threshold: 0,
+    matching: 0,
+    total: 0,
+  };
+  let lastIdleRender = {
+    countText: '0',
+    totalText: '',
+    percent: 0,
+  };
+  let estimateRequestSeq = 0;
+  let estimateDebounceTimer = null;
 
-  // --- Single button state machine ---
-  // States: 'nav' | 'start' | 'stop' | 'done'
+  const clampThreshold = value => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return 0;
+    return Math.max(0, Math.min(100, Math.round(num)));
+  };
 
-  let buttonState = 'start';
+  const normalizeUIState = state => ({
+    sliderThreshold: clampThreshold(state?.sliderThreshold),
+    advancedOpen: Boolean(state?.advancedOpen),
+  });
+
+  const effectiveSettings = (uiState = currentUIState) => ({
+    minProgressPercent: uiState.advancedOpen ? uiState.sliderThreshold : 0,
+  });
+
+  const hasFreshPreviewCache = () => (
+    previewCache
+    && Array.isArray(previewCache.countsAtLeast)
+    && previewCache.countsAtLeast.length === 101
+    && (Date.now() - previewCache.savedAt) <= PREVIEW_CACHE_MAX_AGE_MS
+  );
+
+  const syncKnownTotalFromCache = () => {
+    if (totalVideos > 0) return totalVideos;
+    if (hasFreshPreviewCache() && previewCache.total > 0) {
+      totalVideos = previewCache.total;
+    }
+    return totalVideos;
+  };
+
+  const getPreviewCacheCount = threshold => {
+    if (!hasFreshPreviewCache()) return null;
+    if (previewCache.total > 0 && totalVideos > 0 && previewCache.total !== totalVideos) return null;
+    const idx = clampThreshold(threshold);
+    return typeof previewCache.countsAtLeast[idx] === 'number' ? previewCache.countsAtLeast[idx] : null;
+  };
+
+  const savePreviewCacheEntry = (countsAtLeast, total) => {
+    previewCache = {
+      countsAtLeast,
+      total,
+      savedAt: Date.now(),
+    };
+    browser.storage.local.set({ [PREVIEW_CACHE_KEY]: previewCache }).catch(() => {});
+  };
+
+  const saveUIState = () => {
+    browser.storage.local.set({ [SETTINGS_KEY]: currentUIState }).catch(() => {});
+  };
+
+  const syncPopupVisibility = visible => {
+    if (!currentTab?.id || !currentTab.url.includes('youtube.com/playlist?list=WL')) return;
+    browser.tabs.sendMessage(currentTab.id, {
+      command: 'setPopupVisible',
+      visible,
+    }).catch(() => {});
+  };
+
+  const setStatus = (text, cls = '') => {
+    statusDiv.textContent = text;
+    statusDiv.className = 'status-bar ' + cls;
+  };
 
   const setButtonState = state => {
     buttonState = state;
-    actionButton.className = ''; // reset
+    actionButton.className = '';
     actionButton.disabled = false;
 
     if (state === 'nav') {
@@ -45,42 +130,71 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   };
 
-  // --- UI helpers ---
-
-  const setStatus = (text, cls = '') => {
-    statusDiv.textContent = text;
-    statusDiv.className = 'status-bar ' + cls;
+  const setAdvancedOpen = open => {
+    currentUIState.advancedOpen = open;
+    advancedToggle.classList.toggle('expanded', open);
+    advancedToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    advancedPanel.classList.toggle('hidden', !open);
   };
 
-  const setCount = count => {
-    videosRemoved = count;
-    countSpan.textContent = count.toLocaleString();
-    updateProgress();
+  const syncSettingsUI = () => {
+    progressThreshold.value = currentUIState.sliderThreshold;
+    progressThresholdValue.textContent = `${currentUIState.sliderThreshold}%`;
+    advancedHelp.textContent = '';
+    setAdvancedOpen(currentUIState.advancedOpen);
   };
 
-  const updateProgress = () => {
-    if (totalVideos > 0) {
-      const pct = Math.min(100, (videosRemoved / totalVideos) * 100);
-      progressBar.style.width = pct + '%';
-      progressBar.classList.remove('indeterminate');
+  const setProgressWidth = ratio => {
+    const pct = Math.max(0, Math.min(100, ratio));
+    progressBar.classList.remove('indeterminate');
+    progressBar.style.width = `${pct}%`;
+  };
+
+  const renderIdlePreview = ({ preserveKnownCount = false } = {}) => {
+    syncKnownTotalFromCache();
+
+    if (totalVideos <= 0) {
+      progressSection.classList.add('hidden');
+      return;
+    }
+
+    progressSection.classList.remove('hidden');
+    progressLabel.textContent = 'to delete';
+
+    const settings = effectiveSettings();
+    if (settings.minProgressPercent === 0) {
+      countSpan.textContent = totalVideos.toLocaleString();
       totalLabel.textContent = `of ~${totalVideos.toLocaleString()}`;
-    } else {
-      progressBar.classList.add('indeterminate');
-      progressBar.style.width = '';
-      totalLabel.textContent = '';
+      etaDiv.textContent = '';
+      setProgressWidth(100);
+      lastIdleRender = {
+        countText: countSpan.textContent,
+        totalText: totalLabel.textContent,
+        percent: 100,
+      };
+      return;
     }
 
-    if (startTime && videosRemoved > 0) {
-      const elapsed = (Date.now() - startTime) / 1000;
-      const rate = videosRemoved / elapsed;
-      if (totalVideos > 0 && rate > 0) {
-        const remaining = totalVideos - videosRemoved;
-        const etaSec = remaining / rate;
-        etaDiv.textContent = remaining > 0 ? `~${formatDuration(etaSec)} remaining` : '';
-      } else {
-        etaDiv.textContent = `${rate.toFixed(1)}/s`;
-      }
+    const cachedCount = getPreviewCacheCount(settings.minProgressPercent);
+    if (cachedCount != null) {
+      countSpan.textContent = cachedCount.toLocaleString();
+      totalLabel.textContent = `of ~${totalVideos.toLocaleString()}`;
+      etaDiv.textContent = '';
+      setProgressWidth(totalVideos > 0 ? (cachedCount / totalVideos) * 100 : 0);
+      lastIdleRender = {
+        countText: countSpan.textContent,
+        totalText: totalLabel.textContent,
+        percent: totalVideos > 0 ? (cachedCount / totalVideos) * 100 : 0,
+      };
+      return;
     }
+
+    if (!preserveKnownCount) {
+      countSpan.textContent = lastIdleRender.countText || totalVideos.toLocaleString();
+      totalLabel.textContent = lastIdleRender.totalText || `of ~${totalVideos.toLocaleString()}`;
+      setProgressWidth(lastIdleRender.percent || 0);
+    }
+    etaDiv.textContent = '';
   };
 
   const formatDuration = sec => {
@@ -91,39 +205,88 @@ document.addEventListener('DOMContentLoaded', async () => {
     return `${h}h ${m}m`;
   };
 
-  // --- Review ---
+  const renderRunning = state => {
+    progressSection.classList.remove('hidden');
+    progressLabel.textContent = 'removed';
+    countSpan.textContent = state.count.toLocaleString();
 
-  const showReviewPrompt = count => {
-    if (count < 5) return;
-    browser.storage.local.get('reviewDismissed').then(r => {
-      if (r.reviewDismissed) return;
-      const stat = $('reviewStat');
-      if (stat) stat.textContent = count.toLocaleString();
-      reviewCard.classList.remove('hidden');
-    });
+    const effectiveTotal = state.matchingEstimate > 0 ? state.matchingEstimate : (state.total || totalVideos);
+    totalLabel.textContent = effectiveTotal > 0 ? `of ~${effectiveTotal.toLocaleString()}` : '';
+    setProgressWidth(effectiveTotal > 0 ? (state.count / effectiveTotal) * 100 : 0);
+
+    if (startTime && state.count > 0) {
+      const elapsed = (Date.now() - startTime) / 1000;
+      const rate = state.count / elapsed;
+      if (rate > 0 && effectiveTotal > state.count) {
+        etaDiv.textContent = `~${formatDuration((effectiveTotal - state.count) / rate)} remaining`;
+      } else {
+        etaDiv.textContent = `${rate.toFixed(1)}/s`;
+      }
+    } else {
+      etaDiv.textContent = '';
+    }
   };
 
-  reviewYes.addEventListener('click', () => {
-    browser.tabs.create({ url: 'https://addons.mozilla.org/firefox/addon/youtube-watch-later-cleaner/' });
-    reviewCard.classList.add('hidden');
-    browser.storage.local.set({ reviewDismissed: true });
-  });
+  const renderDone = state => {
+    progressSection.classList.toggle('hidden', state.remaining === 0);
+    progressLabel.textContent = 'removed';
+    countSpan.textContent = state.count.toLocaleString();
+    totalLabel.textContent = state.remaining > 0 ? `${state.remaining.toLocaleString()} kept` : '';
+    etaDiv.textContent = '';
+    setProgressWidth(100);
+  };
 
-  reviewDismiss.addEventListener('click', () => {
-    reviewCard.classList.add('hidden');
-    browser.storage.local.set({ reviewDismissed: true });
-  });
+  const doneMessage = (count, remaining = 0) => (
+    remaining > 0
+      ? `Done! Removed ${count.toLocaleString()} videos and kept ${remaining.toLocaleString()}.`
+      : `Done! Removed ${count.toLocaleString()} videos.`
+  );
+
+  const highlightReviewLink = () => {
+    reviewLink.classList.add('highlight');
+  };
 
   reviewLink.addEventListener('click', e => {
     e.preventDefault();
     browser.tabs.create({ url: 'https://addons.mozilla.org/firefox/addon/youtube-watch-later-cleaner/' });
   });
 
-  const highlightReviewLink = () => {
-    reviewLink.classList.add('highlight');
-  };
+  const queueEstimateRefresh = (immediate = false) => {
+    if (!currentTab || !currentTab.url.includes('youtube.com/playlist?list=WL')) return;
+    if (buttonState === 'stop' || currentTabState?.running) return;
 
-  // --- Bug Report ---
+    const settings = effectiveSettings();
+    const cacheReadyForTotal = hasFreshPreviewCache()
+      && (!totalVideos || !previewCache?.total || previewCache.total === totalVideos);
+    renderIdlePreview({ preserveKnownCount: true });
+
+    if (settings.minProgressPercent === 0 || (cacheReadyForTotal && getPreviewCacheCount(settings.minProgressPercent) != null)) {
+      return;
+    }
+
+    if (estimateDebounceTimer) clearTimeout(estimateDebounceTimer);
+    const run = async () => {
+      const requestId = ++estimateRequestSeq;
+      try {
+        const result = await browser.tabs.sendMessage(currentTab.id, {
+          command: 'estimate',
+          settings,
+        });
+        if (requestId !== estimateRequestSeq) return;
+        if (!result?.ready) return;
+
+        totalVideos = result.total || totalVideos;
+        if (Array.isArray(result.countsAtLeast) && result.countsAtLeast.length === 101) {
+          savePreviewCacheEntry(result.countsAtLeast, result.total || totalVideos);
+        }
+        previewState = { ready: true, threshold: settings.minProgressPercent, matching: result.matching, total: result.total || totalVideos };
+        renderIdlePreview();
+      } catch (_) {}
+    };
+
+    if (immediate) run();
+    else estimateDebounceTimer = setTimeout(run, 180);
+  };
 
   bugReport.addEventListener('click', async () => {
     let logs = [];
@@ -140,14 +303,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     const version = browser.runtime.getManifest().version;
-
-    // Format logs for clipboard
     const logLines = logs.map(l => {
       const ts = new Date(l.t).toISOString().substr(11, 12);
       return `[${ts}] ${l.l} ${l.m}`;
     }).join('\n');
 
-    // Copy logs to clipboard
     const clipText = logLines || '(no logs captured)';
     try {
       await navigator.clipboard.writeText(clipText);
@@ -160,14 +320,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       ta.remove();
     }
 
-    // Build method description
     let method = state.method || 'unknown';
     if (state.method === 'fallback' && state.apiFailedAt > 0) {
       method = `API then fallback (switched at video #${state.apiFailedAt})`;
     } else if (state.method === 'fallback') {
-      method = 'Fallback (API was not available)';
+      method = 'Fallback';
     } else if (state.method === 'api') {
-      method = 'API (fast mode)';
+      method = 'API';
     }
 
     let duration = 'N/A';
@@ -188,7 +347,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       '----------------------------------------',
       `Extension: v${version}`,
       `Method: ${method}`,
+      `Threshold: >= ${state.settings?.minProgressPercent || 0}% watched`,
       `Videos removed: ${state.count || 0}`,
+      `Videos kept: ${state.remaining || 0}`,
       `Playlist size: ~${state.total || 'unknown'}`,
       `Duration: ${duration}`,
       `Browser: ${sysInfo.ua || navigator.userAgent}`,
@@ -210,15 +371,43 @@ document.addEventListener('DOMContentLoaded', async () => {
     setStatus('Logs copied — opening email...', 'success');
   });
 
-  // --- Tab / page detection ---
+  advancedToggle.addEventListener('click', () => {
+    setAdvancedOpen(!currentUIState.advancedOpen);
+    saveUIState();
+    if (!currentTabState?.running) {
+      renderIdlePreview({ preserveKnownCount: true });
+      if (currentUIState.advancedOpen) {
+        queueEstimateRefresh(true);
+      }
+      setStatus('Ready — click Start to begin.', 'success');
+    }
+  });
+
+  progressThreshold.addEventListener('input', () => {
+    currentUIState.sliderThreshold = clampThreshold(progressThreshold.value);
+    progressThresholdValue.textContent = `${currentUIState.sliderThreshold}%`;
+
+    if (buttonState !== 'stop' && currentUIState.advancedOpen) {
+      renderIdlePreview({ preserveKnownCount: true });
+      queueEstimateRefresh();
+      setStatus('Ready — click Start to begin.', 'success');
+    }
+  });
+
+  progressThreshold.addEventListener('change', () => {
+    saveUIState();
+    if (buttonState !== 'stop' && currentUIState.advancedOpen) {
+      queueEstimateRefresh(true);
+    }
+  });
 
   const updateInterface = async () => {
     const tabs = await browser.tabs.query({ active: true, currentWindow: true });
     if (!tabs.length) return;
     currentTab = tabs[0];
+    currentTabState = null;
 
     const isWL = currentTab.url.includes('youtube.com/playlist?list=WL');
-
     if (!isWL) {
       emptyState.classList.add('hidden');
       progressSection.classList.add('hidden');
@@ -228,127 +417,135 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
-    // Read playlist count from DOM
-    // null = page still loading, 0 = confirmed empty, N = has videos
-    let playlistCount = null;
-    try {
-      const result = await browser.tabs.executeScript(currentTab.id, {
+    syncPopupVisibility(true);
+
+    syncKnownTotalFromCache();
+    if (totalVideos > 0) {
+      emptyState.classList.add('hidden');
+      actionButton.classList.remove('hidden');
+      setButtonState('start');
+      renderIdlePreview({ preserveKnownCount: true });
+      setStatus('Ready — click Start to begin.', 'success');
+    }
+
+    const [playlistResult, statusResult] = await Promise.allSettled([
+      browser.tabs.executeScript(currentTab.id, {
         code: `(() => {
-          // Strategy 1: read the byline count ("3 videos")
           const el = document.querySelector('ytd-playlist-byline-renderer yt-formatted-string.byline-item');
           if (el) {
             const text = el.textContent.trim();
             const m = text.replace(/,/g, '').match(/(\\d+)/);
-            if (m) return parseInt(m[1]);
-            // "No videos" in byline — confirmed empty
+            if (m) return parseInt(m[1], 10);
             if (/no video/i.test(text)) return 0;
           }
-          // Strategy 2: YouTube's empty playlist alert/message
           const empty = document.querySelector('ytd-playlist-video-list-renderer [id="empty-message"]')
             || document.querySelector('.empty-message');
           if (empty) return 0;
-          // Strategy 3: playlist header exists but no video renderers
           const header = document.querySelector('ytd-playlist-header-renderer');
           const videos = document.querySelector('ytd-playlist-video-renderer');
           if (header && !videos) return 0;
-          // Not enough info yet
           return null;
         })()`,
-      });
-      playlistCount = result?.[0] ?? null;
-    } catch (_) {}
+      }),
+      browser.tabs.sendMessage(currentTab.id, { command: 'status' }),
+    ]);
 
-    // Query content script for current running state
-    let state = null;
-    try {
-      state = await browser.tabs.sendMessage(currentTab.id, { command: 'status' });
-    } catch (_) {}
+    let playlistCount = null;
+    if (playlistResult.status === 'fulfilled') {
+      playlistCount = playlistResult.value?.[0] ?? null;
+    }
 
-    // --- Active cleaning ---
-    if (state?.running) {
+    if (statusResult.status === 'fulfilled') {
+      currentTabState = statusResult.value;
+    }
+
+    if (currentTabState?.running) {
       emptyState.classList.add('hidden');
-      progressSection.classList.remove('hidden');
       actionButton.classList.remove('hidden');
-      videosRemoved = state.count;
-      if (state.total > 0) totalVideos = state.total;
-      startTime = state.startTime;
-      setCount(state.count);
+      totalVideos = currentTabState.total > 0 ? currentTabState.total : totalVideos;
+      startTime = currentTabState.startTime;
       setButtonState('stop');
-      setStatus('Cleaning in progress...', 'success');
+      renderRunning(currentTabState);
+      setStatus(
+        currentTabState.settings?.minProgressPercent > 0
+          ? `Deleting videos >= ${currentTabState.settings.minProgressPercent}% watched...`
+          : 'Cleaning in progress...',
+        'success'
+      );
       return;
     }
 
-    // --- Cleaning completed (popup was closed during run) ---
-    if (state?.done && state.count > 0) {
-      videosRemoved = state.count;
-      if (state.total > 0) totalVideos = state.total;
-      setCount(state.count);
-      progressBar.style.width = '100%';
-      progressBar.classList.remove('indeterminate');
-      etaDiv.textContent = '';
+    const recentlyCompleted = currentTabState?.done && currentTabState?.completedAt
+      && (Date.now() - currentTabState.completedAt < 8000);
+
+    if (recentlyCompleted && currentTabState.count > 0) {
+      totalVideos = currentTabState.total > 0 ? currentTabState.total : totalVideos;
       setButtonState('done');
-      setStatus(`Done! Removed ${state.count.toLocaleString()} videos.`, 'success');
-      // Show celebration if playlist is confirmed empty
-      if (playlistCount === 0) {
+      renderDone(currentTabState);
+      setStatus(doneMessage(currentTabState.count, currentTabState.remaining || 0), 'success');
+      if ((currentTabState.remaining || 0) === 0) {
         emptyState.classList.remove('hidden');
-        progressSection.classList.add('hidden');
         actionButton.classList.add('hidden');
       } else {
         emptyState.classList.add('hidden');
-        progressSection.classList.remove('hidden');
         actionButton.classList.remove('hidden');
       }
-      showReviewPrompt(state.count);
       highlightReviewLink();
       return;
     }
 
-    // --- Idle: playlist confirmed empty ---
     if (playlistCount === 0) {
       emptyState.classList.remove('hidden');
       progressSection.classList.add('hidden');
       actionButton.classList.add('hidden');
       setStatus('Nothing to clean!', 'success');
-      highlightReviewLink();
       return;
     }
 
-    // --- Idle: playlist has videos or still loading ---
-    emptyState.classList.add('hidden');
-
-    // Reset stale values from any prior run
-    totalVideos = (playlistCount !== null && playlistCount > 0) ? playlistCount : 0;
-    videosRemoved = 0;
-    setCount(0);
-    etaDiv.textContent = '';
-    startTime = null;
-    // Only show progress section if we know there are videos
-    if (totalVideos > 0) {
-      progressSection.classList.remove('hidden');
-    } else {
-      progressSection.classList.add('hidden');
-    }
     if (playlistCount === null) {
-      // Page still loading — hide button to prevent layout shift
+      emptyState.classList.add('hidden');
+      progressSection.classList.add('hidden');
       actionButton.classList.add('hidden');
       setStatus('Loading...', 'success');
       setTimeout(updateInterface, 1500);
-    } else {
-      actionButton.classList.remove('hidden');
-      setButtonState('start');
-      setStatus('Ready — click Start to begin.', 'success');
+      return;
     }
+
+    totalVideos = playlistCount;
+    startTime = null;
+    emptyState.classList.add('hidden');
+    actionButton.classList.remove('hidden');
+    setButtonState('start');
+    renderIdlePreview({ preserveKnownCount: true });
+    setStatus('Ready — click Start to begin.', 'success');
+    queueEstimateRefresh(true);
   };
 
-  await updateInterface();
+  const stored = await browser.storage.local.get([SETTINGS_KEY, PREVIEW_CACHE_KEY]);
+  currentUIState = normalizeUIState(stored[SETTINGS_KEY]);
+  previewCache = stored[PREVIEW_CACHE_KEY] && typeof stored[PREVIEW_CACHE_KEY] === 'object'
+    ? stored[PREVIEW_CACHE_KEY]
+    : null;
+  syncSettingsUI();
+  syncKnownTotalFromCache();
+  renderIdlePreview({ preserveKnownCount: true });
+  setStatus('Ready — click Start to begin.', 'success');
+  updateInterface();
+
+  let popupVisibilityCleared = false;
+  const clearPopupVisibility = () => {
+    if (popupVisibilityCleared) return;
+    popupVisibilityCleared = true;
+    syncPopupVisibility(false);
+  };
+
+  window.addEventListener('pagehide', clearPopupVisibility);
+  window.addEventListener('unload', clearPopupVisibility);
 
   browser.tabs.onUpdated.addListener((tabId, changeInfo) => {
     if (!currentTab || tabId !== currentTab.id) return;
-    // Re-evaluate on URL change or page load complete (catches auto-refresh after cleaning)
     if (changeInfo.url || changeInfo.status === 'complete') updateInterface();
   });
-
-  // --- Single button handler ---
 
   actionButton.addEventListener('click', () => {
     if (buttonState === 'nav') {
@@ -362,53 +559,89 @@ document.addEventListener('DOMContentLoaded', async () => {
           }
         });
       });
+      return;
+    }
 
-    } else if (buttonState === 'start' || buttonState === 'done') {
-      browser.tabs.sendMessage(currentTab.id, { command: 'start' });
+    if (buttonState === 'start' || buttonState === 'done') {
+      const settings = effectiveSettings();
+      const cachedMatching = getPreviewCacheCount(settings.minProgressPercent);
+      const estimatedMatching = settings.minProgressPercent === 0
+        ? totalVideos
+        : (cachedMatching ?? (previewState.ready && previewState.threshold === settings.minProgressPercent ? previewState.matching : 0));
+
+      browser.tabs.sendMessage(currentTab.id, {
+        command: 'start',
+        settings,
+        estimatedMatching,
+      });
       startTime = Date.now();
       setButtonState('stop');
-      setStatus('Cleaning in progress...', 'success');
-      progressSection.classList.remove('hidden');
-      reviewCard.classList.add('hidden');
+      renderRunning({
+        count: 0,
+        total: totalVideos,
+        matchingEstimate: estimatedMatching,
+      });
+      setStatus(
+        settings.minProgressPercent > 0
+          ? `Deleting videos >= ${settings.minProgressPercent}% watched...`
+          : 'Cleaning in progress...',
+        'success'
+      );
+      return;
+    }
 
-    } else if (buttonState === 'stop') {
+    if (buttonState === 'stop') {
       browser.tabs.sendMessage(currentTab.id, { command: 'stop' });
       setStatus('Stopping...', 'warning');
       actionButton.disabled = true;
     }
   });
 
-  // --- Messages from content script ---
-
   browser.runtime.onMessage.addListener(message => {
     if (message.type === 'log') {
-      // Smarter status text during active cleaning
       if (message.text.includes('Removing')) {
-        // "Removing 102 videos..." — show as activity indicator
         setStatus(message.text, 'success');
       } else if (/^\d+ removed/.test(message.text)) {
-        // "201 removed" — don't show redundant count, keep activity status
         setStatus('Cleaning in progress...', 'success');
       } else {
-        // Done, errors, fallback messages — show as-is
         setStatus(message.text, message.class);
       }
-    } else if (message.type === 'count') {
-      setCount(message.count);
-    } else if (message.type === 'error') {
+      return;
+    }
+
+    if (message.type === 'count') {
+      renderRunning({
+        count: message.count,
+        total: totalVideos,
+        matchingEstimate: currentTabState?.matchingEstimate || previewState.matching || totalVideos,
+      });
+      return;
+    }
+
+    if (message.type === 'error') {
       setStatus(message.text, 'error');
-      setButtonState('start');
-      if (message.text.includes('sign in') || message.text.includes('Sign in')) {
-        setButtonState('nav');
+      setButtonState(message.text.includes('sign in') || message.text.includes('Sign in') ? 'nav' : 'start');
+      renderIdlePreview();
+      return;
+    }
+
+    if (message.type === 'complete') {
+      previewCache = null;
+      browser.storage.local.remove(PREVIEW_CACHE_KEY).catch(() => {});
+      renderDone({
+        count: message.count,
+        remaining: message.remaining || 0,
+        total: totalVideos,
+      });
+      setButtonState('done');
+      setStatus(doneMessage(message.count, message.remaining || 0), 'success');
+      if ((message.remaining || 0) === 0) {
+        emptyState.classList.remove('hidden');
+        actionButton.classList.add('hidden');
+      } else {
+        emptyState.classList.add('hidden');
+        actionButton.classList.remove('hidden');
       }
-    } else if (message.type === 'complete') {
-      setStatus(`Done! Removed ${message.count} videos.`, 'success');
-      etaDiv.textContent = '';
-      // Show celebration — page will refresh shortly
-      emptyState.classList.remove('hidden');
-      progressSection.classList.add('hidden');
-      actionButton.classList.add('hidden');
-      showReviewPrompt(message.count);
       highlightReviewLink();
     }
   });
