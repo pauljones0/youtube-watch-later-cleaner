@@ -26,6 +26,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     advancedOpen: false,
   });
 
+  const WATCH_LATER_URL_FRAGMENT = 'youtube.com/playlist?list=WL';
+
   let currentTab = null;
   let currentTabState = null;
   let buttonState = 'start';
@@ -46,6 +48,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
   let estimateRequestSeq = 0;
   let estimateDebounceTimer = null;
+  let contentScriptReadyTabId = null;
+  let contentScriptReadyPromise = null;
+
+  const isWatchLaterUrl = url => typeof url === 'string' && url.includes(WATCH_LATER_URL_FRAGMENT);
 
   const clampThreshold = value => {
     const num = Number(value);
@@ -98,7 +104,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
 
   const syncPopupVisibility = visible => {
-    if (!currentTab?.id || !currentTab.url.includes('youtube.com/playlist?list=WL')) return;
+    if (!currentTab?.id || !isWatchLaterUrl(currentTab.url)) return;
     browser.tabs.sendMessage(currentTab.id, {
       command: 'setPopupVisible',
       visible,
@@ -108,6 +114,62 @@ document.addEventListener('DOMContentLoaded', async () => {
   const setStatus = (text, cls = '') => {
     statusDiv.textContent = text;
     statusDiv.className = 'status-bar ' + cls;
+  };
+
+  const isMissingContentScriptError = error => {
+    const message = String(error?.message || error || '').toLowerCase();
+    return message.includes('could not establish connection')
+      || message.includes('receiving end does not exist')
+      || message.includes('no matching message handler');
+  };
+
+  const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+  const pingContentScript = tabId => browser.tabs.sendMessage(tabId, { command: 'status' });
+
+  const ensureContentScript = async tab => {
+    if (!tab?.id || !isWatchLaterUrl(tab.url)) return null;
+
+    if (contentScriptReadyPromise && contentScriptReadyTabId === tab.id) {
+      return contentScriptReadyPromise;
+    }
+
+    contentScriptReadyTabId = tab.id;
+    contentScriptReadyPromise = (async () => {
+      try {
+        return await pingContentScript(tab.id);
+      } catch (error) {
+        if (!isMissingContentScriptError(error)) throw error;
+      }
+
+      try {
+        await browser.tabs.executeScript(tab.id, { file: 'content.js' });
+      } catch (error) {
+        await delay(100);
+        try {
+          return await pingContentScript(tab.id);
+        } catch (_) {
+          throw error;
+        }
+      }
+
+      return pingContentScript(tab.id);
+    })().finally(() => {
+      if (contentScriptReadyTabId === tab.id) {
+        contentScriptReadyTabId = null;
+        contentScriptReadyPromise = null;
+      }
+    });
+
+    return contentScriptReadyPromise;
+  };
+
+  const contentScriptFailureMessage = error => {
+    const message = String(error?.message || error || '');
+    if (/permission|access/i.test(message)) {
+      return 'YouTube tab access was blocked. Refresh the Watch Later tab and try again.';
+    }
+    return 'Could not connect to this YouTube tab. Refresh it and try again.';
   };
 
   const setButtonState = state => {
@@ -252,7 +314,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   const queueEstimateRefresh = (immediate = false) => {
-    if (!currentTab || !currentTab.url.includes('youtube.com/playlist?list=WL')) return;
+    if (!currentTab || !isWatchLaterUrl(currentTab.url)) return;
     if (buttonState === 'stop' || currentTabState?.running) return;
 
     const settings = effectiveSettings();
@@ -267,8 +329,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (estimateDebounceTimer) clearTimeout(estimateDebounceTimer);
     const run = async () => {
       const requestId = ++estimateRequestSeq;
+      const tab = currentTab;
       try {
-        const result = await browser.tabs.sendMessage(currentTab.id, {
+        await ensureContentScript(tab);
+        if (requestId !== estimateRequestSeq || tab?.id !== currentTab?.id) return;
+
+        const result = await browser.tabs.sendMessage(tab.id, {
           command: 'estimate',
           settings,
         });
@@ -407,7 +473,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     currentTab = tabs[0];
     currentTabState = null;
 
-    const isWL = currentTab.url.includes('youtube.com/playlist?list=WL');
+    const isWL = isWatchLaterUrl(currentTab.url);
     if (!isWL) {
       emptyState.classList.add('hidden');
       progressSection.classList.add('hidden');
@@ -416,8 +482,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       setStatus('Navigate to your Watch Later playlist.', 'warning');
       return;
     }
-
-    syncPopupVisibility(true);
 
     syncKnownTotalFromCache();
     if (totalVideos > 0) {
@@ -447,7 +511,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           return null;
         })()`,
       }),
-      browser.tabs.sendMessage(currentTab.id, { command: 'status' }),
+      ensureContentScript(currentTab),
     ]);
 
     let playlistCount = null;
@@ -457,6 +521,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (statusResult.status === 'fulfilled') {
       currentTabState = statusResult.value;
+      syncPopupVisibility(true);
     }
 
     if (currentTabState?.running) {
@@ -472,6 +537,14 @@ document.addEventListener('DOMContentLoaded', async () => {
           : 'Cleaning in progress...',
         'success'
       );
+      return;
+    }
+
+    if (statusResult.status === 'rejected') {
+      emptyState.classList.add('hidden');
+      progressSection.classList.add('hidden');
+      actionButton.classList.add('hidden');
+      setStatus(contentScriptFailureMessage(statusResult.reason), 'error');
       return;
     }
 
@@ -547,7 +620,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (changeInfo.url || changeInfo.status === 'complete') updateInterface();
   });
 
-  actionButton.addEventListener('click', () => {
+  actionButton.addEventListener('click', async () => {
     if (buttonState === 'nav') {
       setStatus('Navigating...', 'success');
       actionButton.disabled = true;
@@ -569,11 +642,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         ? totalVideos
         : (cachedMatching ?? (previewState.ready && previewState.threshold === settings.minProgressPercent ? previewState.matching : 0));
 
-      browser.tabs.sendMessage(currentTab.id, {
-        command: 'start',
-        settings,
-        estimatedMatching,
-      });
+      actionButton.disabled = true;
+      setStatus('Preparing YouTube tab...', 'success');
+
+      const tab = currentTab;
+      try {
+        await ensureContentScript(tab);
+        await browser.tabs.sendMessage(tab.id, {
+          command: 'start',
+          settings,
+          estimatedMatching,
+        });
+      } catch (error) {
+        setButtonState('start');
+        renderIdlePreview();
+        setStatus(contentScriptFailureMessage(error), 'error');
+        return;
+      }
+
       startTime = Date.now();
       setButtonState('stop');
       renderRunning({

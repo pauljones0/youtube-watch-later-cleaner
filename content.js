@@ -4,6 +4,15 @@
  * Heavy logging for debugging.
  */
 
+(() => {
+if (window.__youtubeWatchLaterCleanerLoaded) {
+  console.log('[WLC]', 'Content script already loaded on:', window.location.href);
+  return;
+}
+
+window.__youtubeWatchLaterCleanerLoaded = true;
+window.__youtubeWatchLaterCleanerVersion = browser.runtime.getManifest().version;
+
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 // --- Logging ---
@@ -2067,3 +2076,4 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 dbg('Content script loaded on:', window.location.href);
+})();
