@@ -1,3 +1,10 @@
 *.zip
 *.xpi
 .claude/
+
+# Local tooling and generated caches
+node_modules/
+web-ext-artifacts/
+__pycache__/
+*.py[cod]
+.DS_Store

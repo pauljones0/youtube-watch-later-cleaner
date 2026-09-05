@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "YouTube Watch Later Cleaner",
-  "version": "2.4",
+  "version": "3.0",
   "description": "Batch-remove all videos from your YouTube Watch Later playlist in seconds",
   "icons": {
     "48": "icon.svg",
@@ -10,8 +10,9 @@
   "permissions": [
     "tabs",
     "storage",
-    "*://*.youtube.com/playlist?list=WL*",
-    "*://youtube.com/playlist?list=WL*"
+    "clipboardWrite",
+    "*://www.youtube.com/*",
+    "*://youtube.com/*"
   ],
   "browser_action": {
     "default_icon": "icon.svg",
@@ -21,10 +22,17 @@
   "content_scripts": [
     {
       "matches": [
-        "*://*.youtube.com/playlist?list=WL*",
-        "*://youtube.com/playlist?list=WL*"
+        "*://www.youtube.com/*",
+        "*://youtube.com/*"
       ],
-      "js": ["content.js"]
+      "js": ["cleaner-core.js", "content.js"]
     }
-  ]
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "{e38a0bfa-b0ab-4197-a86e-421527d9cded}",
+      "strict_min_version": "128.0",
+      "data_collection_permissions": { "required": ["none"] }
+    }
+  }
 }

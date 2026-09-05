@@ -6,10 +6,12 @@
 # Mozilla Add-ons accepts both .zip and .xpi.
 
 set -e
+cd "$(dirname "$0")"
+node build.mjs
 
 NAME="youtube-watch-later-cleaner"
 VERSION=$(grep '"version"' manifest.json | head -1 | sed 's/.*: *"\([^"]*\)".*/\1/')
-FILES="manifest.json content.js popup.html popup.js icon.svg removeWatchLater.js"
+FILES="manifest.json cleaner-core.js content.js popup.html popup.js icon.svg"
 
 echo "Packaging $NAME v$VERSION..."
 
@@ -27,7 +29,7 @@ if command -v zip &>/dev/null; then
 else
   # Fallback for Windows (no zip command — create .zip then rename)
   powershell -Command "
-    Compress-Archive -Path 'manifest.json','content.js','popup.html','popup.js','icon.svg','removeWatchLater.js' -DestinationPath '${NAME}.zip' -Force
+    Compress-Archive -Path 'manifest.json','cleaner-core.js','content.js','popup.html','popup.js','icon.svg' -DestinationPath '${NAME}.zip' -Force
     Move-Item -Force '${NAME}.zip' '${NAME}.xpi'
   "
 fi
