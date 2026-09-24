@@ -77,7 +77,7 @@ document.documentElement.setAttribute('data-probe-loaded', 'yes');
   const saved=await browser.storage.local.get('cleanerLastRun');
   assert(saved.cleanerLastRun.state.phase==='done','diagnostics persisted');
   results.push('completed diagnostics persisted in extension storage');
-  page.resetFixture('stall');engine.start(0);
+  page.resetFixture('stall');engine.start(0, { confirmDeleteAll: true });
   for(let i=0;i<100&&!JSON.parse(JSON.stringify(page.requestsSeen)).some(r=>r.url.includes('edit_playlist'));i++)await wait(20);
   const stop=engine.stop();assert(!engine.start(100).accepted,'restart blocked while stopping');await stop;
   assert(engine.state.phase==='stopped' && page.aborts===1,'abort crosses Firefox compartment');

@@ -1,14 +1,15 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict'), fs = require('node:fs'), vm = require('node:vm');
 const C = require('../cleaner-core.js');
-async function popup({ reject = false, threshold = 80, statusReply } = {}) {
+async function popup({ reject = false, threshold = 80, statusReply, stored } = {}) {
+  const storedResult = stored !== undefined ? stored : { cleanerSettings: { sliderThreshold: threshold, advancedOpen: true } };
   const elements = {}, sent = []; let ready, receive, refresh; let statusReads = 0;
   let state = { documentId: 'doc1', revision: 0, phase: 'idle', running: false, count: 0, observed: 0, remaining: null };
   function element(id) { return elements[id] ||= { hidden: false, disabled: false, textContent: '', value: '', style: {}, listeners: {},
     classList: { add() {}, remove() {}, toggle() {} }, setAttribute() {}, addEventListener(event, fn) { this.listeners[event] = fn; } }; }
   const context = vm.createContext({ WLCCore: C, console, navigator: {}, clearTimeout() {}, setTimeout() { return 1; },
     window: { addEventListener() {} }, document: { getElementById: element, addEventListener(event, fn) { ready = fn; } },
-    browser: { storage: { local: { get: async () => ({ cleanerSettings: { sliderThreshold: threshold, advancedOpen: true } }), set: async () => {} } },
+    browser: { storage: { local: { get: async () => storedResult, set: async () => {} } },
       runtime: { getManifest: () => ({ version: '3.0' }), onMessage: { addListener(fn) { receive = fn; } } },
       tabs: { onUpdated: { addListener(fn) { refresh = () => fn(1, { status: 'complete' }); } }, onActivated: { addListener() {} },
         query: async () => [{ id: 1, url: 'https://www.youtube.com/playlist?list=WL' }],
@@ -47,6 +48,23 @@ test('foreign-tab and older-run messages cannot overwrite the active run', async
 test('an unknown playlist count keeps Start available instead of claiming empty', async () => {
   const { elements: e } = await popup();assert.equal(e.actionButton.disabled, false);assert.equal(e.actionButton.textContent, 'Start Cleaning');
   assert.match(e.status.textContent, /Ready/);
+});
+test('fresh installs default to a safe watched threshold, never delete-all', async () => {
+  const { elements: e, sent } = await popup({ stored: {} });
+  assert.equal(e.progressThreshold.value, C.DEFAULT_THRESHOLD);
+  assert.equal(e.progressThresholdValue.textContent, `${C.DEFAULT_THRESHOLD}%`);
+  await e.actionButton.listeners.click();
+  assert.equal(sent.find(m => m.command === 'start').threshold, C.DEFAULT_THRESHOLD);
+});
+test('starting at 0% requires a confirming second click', async () => {
+  const { elements: e, sent } = await popup({ threshold: 0 });
+  await e.actionButton.listeners.click();
+  assert.equal(sent.some(m => m.command === 'start'), false);
+  assert.match(e.status.textContent, /all/i);
+  await e.actionButton.listeners.click();
+  const start = sent.find(m => m.command === 'start');
+  assert.equal(start.threshold, 0);
+  assert.equal(start.confirmDeleteAll, true);
 });
 test('a rejected Start keeps the rejection visible and never enters Running', async () => {
   const { elements: e } = await popup({ reject: true });await e.actionButton.listeners.click();

@@ -84,7 +84,7 @@ test('failed verification preserves an uncertain result and never fabricates a d
     if (scan++) throw new Error('verification timeout');
     return response([{ id: 'a' }]);
   };
-  cleaner.start(); await cleaner.task; assert.equal(cleaner.state.phase, 'error'); assert.equal(cleaner.state.count, 0);
+  cleaner.start(0, { confirmDeleteAll: true }); await cleaner.task; assert.equal(cleaner.state.phase, 'error'); assert.equal(cleaner.state.count, 0);
   assert.equal(cleaner.state.uncertain, true);
 });
 test('ambiguous edit verifies absence and retries only still-present IDs', async () => {
@@ -97,7 +97,7 @@ test('ambiguous edit verifies absence and retries only still-present IDs', async
     }
     return original(url, h, b, s);
   };
-  cleaner.start();await cleaner.task;
+  cleaner.start(0, { confirmDeleteAll: true });await cleaner.task;
   assert.deepEqual(batches, [['a', 'b'], ['b']]); assert.equal(cleaner.state.count, 2);assert.equal(cleaner.state.phase, 'done');
 });
 test('Stop aborts pending work, prevents next chunk and serializes restart', async () => {
@@ -108,7 +108,7 @@ test('Stop aborts pending work, prevents next chunk and serializes restart', asy
     edits++; entered();
     return new Promise((_, reject) => signal.addEventListener('abort', () => reject(new C.Failure('Stopped.', 'cancelled')), { once: true }));
   };
-  cleaner.start(); await pending;
+  cleaner.start(0, { confirmDeleteAll: true }); await pending;
   const stop = cleaner.stop(); assert.equal(cleaner.start(100).accepted, false); await stop;
   assert.equal(edits, 1); assert.equal(cleaner.state.running, false); assert.equal(cleaner.state.phase, 'stopped');
   assert.equal(cleaner.state.uncertain, true); assert.equal(cleaner.task, null);
@@ -126,7 +126,7 @@ test('navigation and account changes prevent deletion', async () => {
       else adapter.config = () => null;
       return rb;
     };
-    cleaner.start();await cleaner.task;assert.equal(edits, 0);assert.equal(cleaner.state.phase, 'stopped');
+    cleaner.start(0, { confirmDeleteAll: true });await cleaner.task;assert.equal(edits, 0);assert.equal(cleaner.state.phase, 'stopped');
   }
 });
 test('repeated continuation token is an error, not an incomplete successful scan', async () => {
@@ -141,7 +141,7 @@ test('UI-only observations with failed verification are partial, not confirmed c
 test('final verification catches a successful edit response that did not remove targets', async () => {
   const { cleaner, adapter } = setup([{ id: 'a' }]);const original = adapter.request;
   adapter.request = async (u, h, b, s) => u.includes('edit_playlist') ? { status: 'STATUS_SUCCEEDED' } : original(u,h,b,s);
-  cleaner.start();await cleaner.task;assert.equal(cleaner.state.phase, 'error');assert.match(cleaner.state.message, /matching videos remain/);
+  cleaner.start(0, { confirmDeleteAll: true });await cleaner.task;assert.equal(cleaner.state.phase, 'error');assert.match(cleaner.state.message, /matching videos remain/);
 });
 test('retry regenerates authentication after cookie rotation', async () => {
   const { cleaner, adapter } = setup([{ id: 'a' }]);const original = adapter.request;let cookie = 'first', edits = 0;const auth = [];
@@ -153,7 +153,7 @@ test('retry regenerates authentication after cookie rotation', async () => {
     }
     return original(u,h,b,s);
   };
-  cleaner.start();await cleaner.task;assert.equal(cleaner.state.phase, 'done');assert.notEqual(auth[0],auth[1]);
+  cleaner.start(0, { confirmDeleteAll: true });await cleaner.task;assert.equal(cleaner.state.phase, 'done');assert.notEqual(auth[0],auth[1]);
 });
 test('a complete final scan resolves earlier UI failures when no targets remain', async () => {
   const { cleaner, adapter, backend } = setup([{ id: 'a' }]);let first = true;const original = adapter.request;
@@ -193,6 +193,28 @@ test('verification still detects an undeleted target when watch progress drops',
   };
   cleaner.start(80); await cleaner.task;
   assert.equal(cleaner.state.phase, 'error'); assert.equal(backend.length, 1);
+});
+test('the default threshold keeps unwatched videos instead of clearing everything', async () => {
+  const { cleaner, backend } = setup([{ id: 'unwatched', percent: 0 }, { id: 'partial', percent: 50 }, { id: 'watched', percent: 95 }]);
+  assert.equal(C.DEFAULT_THRESHOLD > 0, true);
+  assert.equal(cleaner.start().accepted, true); await cleaner.task;
+  assert.equal(cleaner.state.phase, 'done');
+  assert.deepEqual(backend.map(v => v.id).sort(), ['partial', 'unwatched']);
+});
+test('an unconfirmed zero threshold is rejected without deleting anything', async () => {
+  const { cleaner, backend, calls } = setup([{ id: 'a' }]);
+  const result = cleaner.start(0);
+  assert.equal(result.accepted, false);
+  assert.match(result.message, /confirm/i);
+  assert.equal(cleaner.task, null);
+  assert.equal(calls.filter(c => c.endpoint.includes('edit_playlist')).length, 0);
+  assert.equal(backend.length, 1);
+});
+test('a confirmed zero threshold still clears the whole list', async () => {
+  const { cleaner, backend } = setup([{ id: 'a' }, { id: 'b', percent: 0 }]);
+  assert.equal(cleaner.start(0, { confirmDeleteAll: true }).accepted, true); await cleaner.task;
+  assert.equal(cleaner.state.phase, 'done'); assert.equal(cleaner.state.count, 2);
+  assert.deepEqual(backend, []);
 });
 test('fallback excludes IDs already reconciled as removed from a partially applied batch', async () => {
   const { cleaner, adapter, backend } = setup([{ id: 'a', percent: 100 }, { id: 'b', percent: 100 }]);

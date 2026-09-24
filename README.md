@@ -5,7 +5,7 @@ A Firefox extension that removes videos from your YouTube Watch Later playlist, 
 ## Using it
 
 1. Open [Watch Later](https://www.youtube.com/playlist?list=WL) in the account you want to clean.
-2. Open the extension. Choose a minimum watched percentage in Advanced, or leave it at 0% to remove everything. **Closing Advanced does not disable the filter.**
+2. Open the extension. The default removes only videos watched at least 90%. Lower the minimum watched percentage in Advanced to remove more, or set 0% to remove everything (starting at 0% asks for confirmation first). **Closing Advanced does not disable the filter.**
 3. Select Start Cleaning. The extension scans the complete playlist, including unavailable entries returned by YouTube, then removes matching videos.
 4. Stop waits for the current task to settle before allowing another run. A request already accepted by YouTube may finish despite cancellation; the extension tells you when its outcome is uncertain.
 5. Use Refresh playlist after the run to display YouTube's current list. The extension does not edit YouTube's private list model or automatically reload the page.
@@ -48,7 +48,7 @@ The Firefox tests install a temporary extension in an isolated profile against a
 
 ## Standalone console script
 
-`node build.mjs` generates `removeWatchLater.js` from the same engine and page adapter as the extension. Paste it in the browser console on Watch Later to clear the list. Stop with `WatchLaterCleaner.stop()` or the on-page button. After stopping, a filtered run can be started with `WatchLaterCleaner.start(80)`.
+`node build.mjs` generates `removeWatchLater.js` from the same engine and page adapter as the extension. Paste it in the browser console on Watch Later to remove everything (the generated script carries an explicit delete-all confirmation). Stop with `WatchLaterCleaner.stop()` or the on-page button. A filtered run can be started with `WatchLaterCleaner.start(80)`; `WatchLaterCleaner.start()` alone defaults to 90%, and `start(0)` without confirmation is rejected.
 
 ## Code layout
 

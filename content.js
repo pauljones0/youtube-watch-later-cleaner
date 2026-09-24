@@ -172,7 +172,7 @@
     extension.runtime.onMessage.addListener(message => {
       switch (message.command) {
         case 'status': return Promise.resolve({ ...cleaner.state });
-        case 'start': previewController?.abort(); return Promise.resolve(cleaner.start(message.threshold));
+        case 'start': previewController?.abort(); return Promise.resolve(cleaner.start(message.threshold, { confirmDeleteAll: message.confirmDeleteAll }));
         case 'estimate': return estimate(message.threshold);
         case 'stop': return cleaner.stop();
         case 'getLogs': return diagnostics();
