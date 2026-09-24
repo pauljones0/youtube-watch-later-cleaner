@@ -283,7 +283,7 @@
   const C = globalThis.WLCCore;
   const extension = typeof browser !== 'undefined' ? browser : null;
   const page = window.wrappedJSObject || window;
-  const VERSION = extension?.runtime.getManifest().version || '3.0-console';
+  const VERSION = extension?.runtime.getManifest().version || '3.0.1-console';
   const LAST_RUN_KEY = 'cleanerLastRun';
   let overlay = null, popupVisible = false, saving = Promise.resolve();
   const logs = [];

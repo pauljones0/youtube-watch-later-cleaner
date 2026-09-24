@@ -10,7 +10,7 @@ async function popup({ reject = false, threshold = 80, statusReply, stored } = {
   const context = vm.createContext({ WLCCore: C, console, navigator: {}, clearTimeout() {}, setTimeout() { return 1; },
     window: { addEventListener() {} }, document: { getElementById: element, addEventListener(event, fn) { ready = fn; } },
     browser: { storage: { local: { get: async () => storedResult, set: async () => {} } },
-      runtime: { getManifest: () => ({ version: '3.0' }), onMessage: { addListener(fn) { receive = fn; } } },
+      runtime: { getManifest: () => ({ version: '3.0.1' }), onMessage: { addListener(fn) { receive = fn; } } },
       tabs: { onUpdated: { addListener(fn) { refresh = () => fn(1, { status: 'complete' }); } }, onActivated: { addListener() {} },
         query: async () => [{ id: 1, url: 'https://www.youtube.com/playlist?list=WL' }],
         sendMessage: async (id, message) => {
